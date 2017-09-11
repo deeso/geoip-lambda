@@ -5,12 +5,14 @@ from requests import Session, Request
 import socket
 import logging
 import SocketServer
+from ghettoq.simple import Connection
 
 
 class GeoIPEnrich:
     MY_URL = '/geoip-enrich/'
     MY_ADDR = '0.0.0.0'
     MY_PORT = 8989
+    REDIS_Q = None
 
     GEOIP_ENRICHER = None
 
@@ -39,6 +41,15 @@ class GeoIPEnrich:
             logging.debug("starting the geoip-lambda server listener")
             server = SocketServer.UDPServer((cls.MY_ADDR, cls.MY_PORT), cls)
             return server
+        except:
+            raise
+
+    @classmethod
+    def get_redis_queue_server(cls):
+        try:
+            logging.debug("starting the geoip-lambda redis queue listener")
+            cls.REDIS_Q = Connection("redis", host=cls.MY_ADDR, database=1)
+            return cls.REDIS_Q.Queue(cls.MY_URL)
         except:
             raise
 
@@ -80,9 +91,16 @@ class GeoIPEnrich:
         return resp.status_code
 
     @classmethod
-    def do_udp(cls, host, server, data):
+    def do_udp(cls, host, port, data):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        return sock.sendto((host, server), data)
+        return sock.sendto((host, port), data)
+
+    @classmethod
+    def do_redis_gq(cls, host, queuename, data):
+        conn = Connection("redis", host=host, database=1)
+        q = conn.Queue(queuename)
+        q.put(data)
+        return len(data)
 
     @classmethod
     def get_uri(cls, **kargs):
@@ -100,6 +118,11 @@ class GeoIPEnrich:
             uri = cls.get_uri(**kargs)
             logging.debug("Forwarding result to tcp:%s" % uri)
             return cls.do_request(uri, data, cls.headers, cls.timeout)
+        elif cls.DEFAULT_FORWARD_TYPE == 'redis':
+            host = cls.DEFAULT_FORWARD_HOST
+            queuename = cls.DEFAULT_FORWARD_URI
+            msg = json.dumps(data)
+            return cls.do_redis_gq(host, queuename, msg)
         else:  # cls.DEFAULT_FORWARD_PROTO == 'udp':
             host, port = cls.DEFAULT_FORWARD_HOST, cls.DEFAULT_FORWARD_PORT
             logging.debug("Forwarding result to udp:%s:%s" % (host, port))
@@ -111,6 +134,7 @@ class GeoIPEnrich:
         data = json.loads(web.data())
         return self.enrich(data)
 
+    @classmethod
     def perform_look_up(self, data):
         logging.debug("Performing look-ups")
         data_keys = [i for i in data.keys() if i in self.UPDATE_JSON_KEYS]
@@ -129,6 +153,7 @@ class GeoIPEnrich:
                     data["_".join(p, k)] = v
         return data
 
+    @classmethod
     def enrich(self, data):
         data = self.perform_look_up(data)
         result = self.forward_data(data)
@@ -140,3 +165,14 @@ class GeoIPEnrich:
         bdata = bytes.decode(self.request[0].strip())
         data = json.loads(bdata)
         return self.enrich(data)
+
+    @classmethod
+    def perform_redis_poll(cls):
+        q = cls.get_redis_queue_server()
+        while True:
+            try:
+                message = q.get()
+                data = json.loads(message)
+                GeoIPEnricher.enich(data)
+            except:
+                pass

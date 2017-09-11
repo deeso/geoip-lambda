@@ -24,7 +24,7 @@ parser.add_argument('-fhost', type=str, default='127.0.0.1',
 parser.add_argument('-fport', type=int, default=6767,
                     help='host port to forward too')
 parser.add_argument('-ftype', type=str, default='tcp',
-                    help='"udp" uses only host/port or "tcp" (uses more)')
+                    help='"udp" uses only host/port or "tcp" (uses more), "redis" ...')
 parser.add_argument('-fproto', type=str, default="https",
                     help='tcp uri protocol (e.g. https, http, etc.')
 
@@ -47,28 +47,9 @@ def parse_keys(parser_args):
     return dict([i.split(':') for i in key_infor])
 
 
-def run_udp_server(parser_args):
-    host, port = parser_args.fhost, parser_args.fport
+def run_redis_server(parser_args):
     my_host, my_port = parser_args.host, parser_args.port
     my_url = parser_args.url
-
-    GeoIPEnricher.set_my_info(my_host, my_port, my_url)
-    GeoIPEnricher.set_forward(host, port)
-    GeoIPEnricher.set_enrichment_keys(parse_keys(parser_args))
-    server = GeoIPEnricher.get_server()
-    server.serve_forever(poll_interval=0.5)
-
-
-def run_tcp_webserver(parser_args):
-    my_host, my_port = parser_args.host, parser_args.port
-    my_url = parser_args.url
-
-    class MyApplication(web.application):
-        def run(self, *middleware):
-            func = self.wsgifunc(*middleware)
-            # note capturing host and port from above
-            return web.httpserver.runsimple(func, (my_host, my_port))
-
     host, port = parser_args.fhost, parser_args.fport
     uri = parser_args.furi
     proto = parser_args.fproto
@@ -76,6 +57,41 @@ def run_tcp_webserver(parser_args):
 
     GeoIPEnricher.set_forward(host, port, uri, proto)
     GeoIPEnricher.set_enrichment_keys(parse_keys(parser_args))
+    GeoIPEnricher.perform_redis_poll()
+
+
+def run_udp_server(parser_args):
+    my_host, my_port = parser_args.host, parser_args.port
+    my_url = parser_args.url
+    host, port = parser_args.fhost, parser_args.fport
+    uri = parser_args.furi
+    proto = parser_args.fproto
+    GeoIPEnricher.set_my_info(my_host, my_port, my_url)
+
+    GeoIPEnricher.set_forward(host, port, uri, proto)
+    GeoIPEnricher.set_enrichment_keys(parse_keys(parser_args))
+
+    server = GeoIPEnricher.get_server()
+    server.serve_forever(poll_interval=0.5)
+
+
+def run_tcp_webserver(parser_args):
+    my_host, my_port = parser_args.host, parser_args.port
+    my_url = parser_args.url
+    host, port = parser_args.fhost, parser_args.fport
+    uri = parser_args.furi
+    proto = parser_args.fproto
+    GeoIPEnricher.set_my_info(my_host, my_port, my_url)
+
+    GeoIPEnricher.set_forward(host, port, uri, proto)
+    GeoIPEnricher.set_enrichment_keys(parse_keys(parser_args))
+
+    class MyApplication(web.application):
+        def run(self, *middleware):
+            func = self.wsgifunc(*middleware)
+            # note capturing host and port from above
+            return web.httpserver.runsimple(func, (my_host, my_port))
+
     app = web.application(GeoIPEnricher.urls(), globals())
     app.run()
 
