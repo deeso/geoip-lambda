@@ -6,6 +6,7 @@ import socket
 import logging
 import SocketServer
 from ghettoq.simple import Connection
+from kombu import BrokerConnection
 
 
 class GeoIPEnrich:
@@ -15,6 +16,8 @@ class GeoIPEnrich:
     REDIS_Q = None
 
     GEOIP_ENRICHER = None
+    DEFAULT_FORWARD_NAME = ""
+    DEFAULT_FORWARD_PASSWORD = ""
 
     DEFAULT_FORWARD_TYPE = "tcp"
     DEFAULT_FORWARD_HOST = '127.0.0.1'
@@ -96,10 +99,12 @@ class GeoIPEnrich:
         return sock.sendto((host, port), data)
 
     @classmethod
-    def do_redis_gq(cls, host, queuename, data):
-        conn = Connection("redis", host=host, database=1)
-        q = conn.Queue(queuename)
-        q.put(data)
+    def do_aqmp(cls, host, port, queuename, data):
+        uri = 'redis://{host}:{port}//'.format(**{'host': host,
+                                                  'port': port})
+        with BrokerConnection(uri) as conn:
+            with conn.SimpleQueue(queuename) as queue:
+                queue.put(data)
         return len(data)
 
     @classmethod
@@ -118,16 +123,18 @@ class GeoIPEnrich:
             uri = cls.get_uri(**kargs)
             logging.debug("Forwarding result to tcp:%s" % uri)
             return cls.do_request(uri, data, cls.headers, cls.timeout)
-        elif cls.DEFAULT_FORWARD_TYPE == 'redis':
-            host = cls.DEFAULT_FORWARD_HOST
+        elif cls.DEFAULT_FORWARD_TYPE == 'aqmp':
+            host, port = cls.DEFAULT_FORWARD_HOST, cls.DEFAULT_FORWARD_PORT
             queuename = cls.DEFAULT_FORWARD_URI
             msg = json.dumps(data)
-            return cls.do_redis_gq(host, queuename, msg)
-        else:  # cls.DEFAULT_FORWARD_PROTO == 'udp':
+            return cls.do_aqmp(host, port, queuename, msg)
+        elif cls.DEFAULT_FORWARD_PROTO == 'udp':
             host, port = cls.DEFAULT_FORWARD_HOST, cls.DEFAULT_FORWARD_PORT
             logging.debug("Forwarding result to udp:%s:%s" % (host, port))
             msg = json.dumps(data) + '\n'
             return cls.do_udp(host, port, msg)
+        else:
+            raise Exception("no where to forward the message")
 
     def POST(self):
         logging.debug("Handling enrich POST message")
@@ -167,12 +174,17 @@ class GeoIPEnrich:
         return self.enrich(data)
 
     @classmethod
-    def perform_redis_poll(cls):
-        q = cls.get_redis_queue_server()
+    def perform_aqmp_poll(cls):
+        host, port = cls.MY_ADDR, cls.MY_PORT
+        queuename = cls.MY_URL
+        uri = 'redis://{host}:{port}//'.format(**{'host': host,
+                                                  'port': port})
         while True:
-            try:
-                message = q.get()
-                data = json.loads(message)
-                GeoIPEnricher.enich(data)
-            except:
-                pass
+            with BrokerConnection(uri) as conn:
+                with conn.SimpleQueue(queuename) as queue:
+                    try:
+                        message = queue.get()
+                        data = json.loads(message)
+                        cls.enich(data)
+                    except:
+                        pass

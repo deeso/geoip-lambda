@@ -24,7 +24,7 @@ parser.add_argument('-fhost', type=str, default='127.0.0.1',
 parser.add_argument('-fport', type=int, default=6767,
                     help='host port to forward too')
 parser.add_argument('-ftype', type=str, default='tcp',
-                    help='"udp" uses only host/port or "tcp" (uses more), "redis" ...')
+                    help='"udp" uses only host/port or "tcp" (uses more), "aqmp" ...')
 parser.add_argument('-fproto', type=str, default="https",
                     help='tcp uri protocol (e.g. https, http, etc.')
 
@@ -47,7 +47,7 @@ def parse_keys(parser_args):
     return dict([i.split(':') for i in key_infor])
 
 
-def run_redis_server(parser_args):
+def run_aqmp_server(parser_args):
     my_host, my_port = parser_args.host, parser_args.port
     my_url = parser_args.url
     host, port = parser_args.fhost, parser_args.fport
@@ -57,7 +57,7 @@ def run_redis_server(parser_args):
 
     GeoIPEnricher.set_forward(host, port, uri, proto)
     GeoIPEnricher.set_enrichment_keys(parse_keys(parser_args))
-    GeoIPEnricher.perform_redis_poll()
+    GeoIPEnricher.perform_aqmp_poll()
 
 
 def run_udp_server(parser_args):

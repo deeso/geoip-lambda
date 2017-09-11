@@ -1,4 +1,4 @@
 python-geoip-geolite2
 toml
 web
-ghettoq
+kombu
