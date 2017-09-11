@@ -7,6 +7,9 @@ import web
 
 parser = argparse.ArgumentParser(description='Start geoip-lambda.')
 
+parser.add_argument('-config', type=str, default=None,
+                    help='# todo implement configuration file parsing')
+
 parser.add_argument('-url', type=str, default='/geoip-enrich/',
                     help='url to listen with using tcp')
 parser.add_argument('-host', type=str, default='0.0.0.0',
